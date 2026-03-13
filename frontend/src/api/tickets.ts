@@ -19,6 +19,7 @@ export interface TicketComment {
   author: string
   content: string
   createdAt: string
+  updatedAt: string | null
 }
 
 export interface TicketHistory {
@@ -38,6 +39,13 @@ export interface TicketDetail extends TicketSummary {
   history: TicketHistory[]
 }
 
+export interface PagedResult<T> {
+  items: T[]
+  totalCount: number
+  page: number
+  pageSize: number
+}
+
 export interface CreateTicketRequest {
   title: string
   description?: string
@@ -48,6 +56,14 @@ export interface UpdateTicketRequest {
   description?: string
   status?: string
   assignedToId?: number | null
+}
+
+export interface TicketListParams {
+  search?: string
+  status?: string
+  assignedToMe?: boolean
+  page?: number
+  pageSize?: number
 }
 
 export interface AgentDto {
@@ -63,12 +79,17 @@ export interface TicketStats {
 }
 
 export const ticketsApi = {
-  getAll: () => api.get<TicketSummary[]>('/tickets'),
+  getAll: (params?: TicketListParams) =>
+    api.get<PagedResult<TicketSummary>>('/tickets', { params }),
   getById: (id: number) => api.get<TicketDetail>(`/tickets/${id}`),
   create: (data: CreateTicketRequest) => api.post<TicketDetail>('/tickets', data),
   update: (id: number, data: UpdateTicketRequest) => api.put<TicketDetail>(`/tickets/${id}`, data),
   addComment: (id: number, content: string) =>
     api.post<TicketComment>(`/tickets/${id}/comments`, { content }),
+  editComment: (ticketId: number, commentId: number, content: string) =>
+    api.put<TicketComment>(`/tickets/${ticketId}/comments/${commentId}`, { content }),
+  deleteComment: (ticketId: number, commentId: number) =>
+    api.delete(`/tickets/${ticketId}/comments/${commentId}`),
   assignTicket: (id: number, assignedToId?: number) =>
     api.post<TicketDetail>(`/tickets/${id}/assign`, { assignedToId }),
   getStats: () => api.get<TicketStats>('/tickets/stats'),

@@ -29,6 +29,12 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/access-denied',
+      name: 'access-denied',
+      component: () => import('@/views/AccessDeniedView.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
       path: '/:pathMatch(.*)*',
       redirect: '/',
     },
