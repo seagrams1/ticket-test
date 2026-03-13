@@ -5,7 +5,9 @@ export interface TicketSummary {
   title: string
   status: string
   createdBy: string
+  createdById: number
   assignedTo: string | null
+  assignedToId: number | null
   createdAt: string
   updatedAt: string
 }
@@ -32,8 +34,6 @@ export interface TicketHistory {
 
 export interface TicketDetail extends TicketSummary {
   description: string
-  createdById: number
-  assignedToId: number | null
   comments: TicketComment[]
   history: TicketHistory[]
 }
@@ -50,6 +50,18 @@ export interface UpdateTicketRequest {
   assignedToId?: number | null
 }
 
+export interface AgentDto {
+  id: number
+  username: string
+}
+
+export interface TicketStats {
+  openCount: number
+  inProgressCount: number
+  resolvedTodayCount: number
+  totalVisible: number
+}
+
 export const ticketsApi = {
   getAll: () => api.get<TicketSummary[]>('/tickets'),
   getById: (id: number) => api.get<TicketDetail>(`/tickets/${id}`),
@@ -57,4 +69,11 @@ export const ticketsApi = {
   update: (id: number, data: UpdateTicketRequest) => api.put<TicketDetail>(`/tickets/${id}`, data),
   addComment: (id: number, content: string) =>
     api.post<TicketComment>(`/tickets/${id}/comments`, { content }),
+  assignTicket: (id: number, assignedToId?: number) =>
+    api.post<TicketDetail>(`/tickets/${id}/assign`, { assignedToId }),
+  getStats: () => api.get<TicketStats>('/tickets/stats'),
+}
+
+export const usersApi = {
+  getAgents: () => api.get<AgentDto[]>('/users/agents'),
 }

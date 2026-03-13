@@ -15,12 +15,18 @@ public record UpdateTicketRequest(
     int? AssignedToId
 );
 
+public record AssignTicketRequest(
+    int? AssignedToId
+);
+
 public record TicketSummaryDto(
     int Id,
     string Title,
     string Status,
     string CreatedBy,
+    int CreatedById,
     string? AssignedTo,
+    int? AssignedToId,
     DateTime CreatedAt,
     DateTime UpdatedAt
 );
@@ -62,4 +68,16 @@ public record TicketHistoryDto(
 
 public record AddCommentRequest(
     [Required] string Content
+);
+
+public record AgentDto(
+    int Id,
+    string Username
+);
+
+public record TicketStatsDto(
+    int OpenCount,
+    int InProgressCount,
+    int ResolvedTodayCount,
+    int TotalVisible
 );

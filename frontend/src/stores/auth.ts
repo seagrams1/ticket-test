@@ -13,6 +13,14 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value)
   const isAdmin = computed(() => role.value === 'Admin')
   const isAgent = computed(() => role.value === 'Agent' || role.value === 'Admin')
+  const isSubmitter = computed(() => role.value === 'Submitter')
+
+  // Convenience object combining user identity fields
+  const user = computed(() =>
+    username.value && userId.value != null
+      ? { id: userId.value, username: username.value, role: role.value }
+      : null
+  )
 
   function setAuth(data: { token: string; username: string; role: string; userId: number }) {
     token.value = data.token
@@ -59,9 +67,11 @@ export const useAuthStore = defineStore('auth', () => {
     username,
     role,
     userId,
+    user,
     isAuthenticated,
     isAdmin,
     isAgent,
+    isSubmitter,
     login,
     register,
     logout,

@@ -12,6 +12,8 @@ public interface ITicketService
     Task<TicketDetailDto> CreateAsync(CreateTicketRequest request, int createdById);
     Task<TicketDetailDto?> UpdateAsync(int id, UpdateTicketRequest request, int changedById);
     Task<TicketCommentDto?> AddCommentAsync(int ticketId, AddCommentRequest request, int authorId);
+    Task<TicketDetailDto?> AssignAsync(int ticketId, int? assignedToId, int changedById);
+    Task<TicketStatsDto> GetStatsAsync(int requestingUserId, UserRole requestingUserRole);
 }
 
 public class TicketService(AppDbContext context) : ITicketService
@@ -23,11 +25,17 @@ public class TicketService(AppDbContext context) : ITicketService
             .Include(t => t.AssignedTo)
             .AsQueryable();
 
-        // Submitters can only see their own tickets
         if (requestingUserRole == UserRole.Submitter && requestingUserId.HasValue)
         {
+            // Submitters see only tickets they created
             query = query.Where(t => t.CreatedById == requestingUserId.Value);
         }
+        else if (requestingUserRole == UserRole.Agent && requestingUserId.HasValue)
+        {
+            // Agents see tickets assigned to them + unassigned tickets
+            query = query.Where(t => t.AssignedToId == requestingUserId.Value || t.AssignedToId == null);
+        }
+        // Admins see all tickets (no filter)
 
         var tickets = await query
             .OrderByDescending(t => t.CreatedAt)
@@ -38,7 +46,9 @@ public class TicketService(AppDbContext context) : ITicketService
             t.Title,
             t.Status.ToString(),
             t.CreatedBy.Username,
+            t.CreatedById,
             t.AssignedTo?.Username,
+            t.AssignedToId,
             t.CreatedAt,
             t.UpdatedAt
         ));
@@ -127,6 +137,23 @@ public class TicketService(AppDbContext context) : ITicketService
         return (await GetByIdAsync(ticket.Id))!;
     }
 
+    public async Task<TicketDetailDto?> AssignAsync(int ticketId, int? assignedToId, int changedById)
+    {
+        var ticket = await context.Tickets.FindAsync(ticketId);
+        if (ticket is null) return null;
+
+        var oldValue = ticket.AssignedToId?.ToString();
+        var newValue = assignedToId?.ToString();
+
+        ticket.AssignedToId = assignedToId;
+        ticket.UpdatedAt = DateTime.UtcNow;
+
+        context.TicketHistories.Add(CreateHistoryEntry(ticketId, changedById, "AssignedToId", oldValue, newValue));
+        await context.SaveChangesAsync();
+
+        return (await GetByIdAsync(ticketId))!;
+    }
+
     public async Task<TicketCommentDto?> AddCommentAsync(int ticketId, AddCommentRequest request, int authorId)
     {
         var ticket = await context.Tickets.FindAsync(ticketId);
@@ -152,6 +179,19 @@ public class TicketService(AppDbContext context) : ITicketService
             author?.Username ?? "Unknown",
             comment.Content,
             comment.CreatedAt
+        );
+    }
+
+    public async Task<TicketStatsDto> GetStatsAsync(int requestingUserId, UserRole requestingUserRole)
+    {
+        var tickets = (await GetAllAsync(requestingUserId, requestingUserRole)).ToList();
+        var today = DateTime.UtcNow.Date;
+
+        return new TicketStatsDto(
+            tickets.Count(t => t.Status == "Open"),
+            tickets.Count(t => t.Status == "InProgress"),
+            tickets.Count(t => t.Status == "Resolved" && t.UpdatedAt.Date == today),
+            tickets.Count
         );
     }
 

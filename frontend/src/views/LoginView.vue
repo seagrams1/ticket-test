@@ -6,7 +6,6 @@ import { useToast } from 'primevue/usetoast'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
-import Card from 'primevue/card'
 
 const router = useRouter()
 const route = useRoute()
