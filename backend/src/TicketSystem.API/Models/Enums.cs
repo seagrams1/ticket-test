@@ -15,3 +15,11 @@ public enum TicketStatus
     Resolved = 3,
     Unresolved = 4
 }
+
+public enum TicketPriority
+{
+    Low = 0,
+    Medium = 1,
+    High = 2,
+    Critical = 3
+}

@@ -15,6 +15,8 @@ public class Ticket
 
     public TicketStatus Status { get; set; } = TicketStatus.Open;
 
+    public TicketPriority Priority { get; set; } = TicketPriority.Medium;
+
     public int CreatedById { get; set; }
 
     public int? AssignedToId { get; set; }

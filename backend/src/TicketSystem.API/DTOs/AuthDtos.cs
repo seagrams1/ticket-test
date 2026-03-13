@@ -19,3 +19,8 @@ public record AuthResponse(
     string Role,
     int UserId
 );
+
+public record ChangePasswordRequest(
+    [Required] string CurrentPassword,
+    [Required][MinLength(6)] string NewPassword
+);

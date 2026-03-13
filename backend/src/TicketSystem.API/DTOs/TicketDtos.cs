@@ -5,14 +5,16 @@ namespace TicketSystem.API.DTOs;
 
 public record CreateTicketRequest(
     [Required][MaxLength(255)] string Title,
-    string Description = ""
+    string Description = "",
+    TicketPriority Priority = TicketPriority.Medium
 );
 
 public record UpdateTicketRequest(
     string? Title,
     string? Description,
     TicketStatus? Status,
-    int? AssignedToId
+    int? AssignedToId,
+    TicketPriority? Priority = null
 );
 
 public record AssignTicketRequest(
@@ -47,6 +49,7 @@ public record TicketSummaryDto(
     int Id,
     string Title,
     string Status,
+    string Priority,
     string CreatedBy,
     int CreatedById,
     string? AssignedTo,
@@ -60,6 +63,7 @@ public record TicketDetailDto(
     string Title,
     string Description,
     string Status,
+    string Priority,
     int CreatedById,
     string CreatedBy,
     int? AssignedToId,

@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using TicketSystem.API.Data;
@@ -11,6 +13,8 @@ namespace TicketSystem.API.Controllers;
 [Route("api/auth")]
 public class AuthController(AppDbContext context, IJwtService jwtService) : ControllerBase
 {
+    private int CurrentUserId =>
+        int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
@@ -46,5 +50,21 @@ public class AuthController(AppDbContext context, IJwtService jwtService) : Cont
 
         var token = jwtService.GenerateToken(user);
         return Ok(new AuthResponse(token, user.Username, user.Role.ToString(), user.Id));
+    }
+
+    [HttpPost("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    {
+        var user = await context.Users.FindAsync(CurrentUserId);
+        if (user is null) return NotFound(new { message = "User not found." });
+
+        if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+            return BadRequest(new { message = "Current password is incorrect." });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        await context.SaveChangesAsync();
+
+        return Ok(new { message = "Password changed successfully." });
     }
 }

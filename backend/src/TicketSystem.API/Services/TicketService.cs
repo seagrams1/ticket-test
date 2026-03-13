@@ -63,6 +63,7 @@ public class TicketService(AppDbContext context) : ITicketService
             t.Id,
             t.Title,
             t.Status.ToString(),
+            t.Priority.ToString(),
             t.CreatedBy.Username,
             t.CreatedById,
             t.AssignedTo?.Username,
@@ -95,6 +96,7 @@ public class TicketService(AppDbContext context) : ITicketService
             Title = request.Title,
             Description = request.Description,
             Status = TicketStatus.Open,
+            Priority = request.Priority,
             CreatedById = createdById,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -143,6 +145,12 @@ public class TicketService(AppDbContext context) : ITicketService
             var newValue = request.AssignedToId?.ToString();
             historyEntries.Add(CreateHistoryEntry(ticket.Id, changedById, "AssignedToId", oldValue, newValue));
             ticket.AssignedToId = request.AssignedToId;
+        }
+
+        if (request.Priority.HasValue && request.Priority.Value != ticket.Priority)
+        {
+            historyEntries.Add(CreateHistoryEntry(ticket.Id, changedById, "Priority", ticket.Priority.ToString(), request.Priority.Value.ToString()));
+            ticket.Priority = request.Priority.Value;
         }
 
         if (historyEntries.Count > 0)
@@ -331,6 +339,7 @@ public class TicketService(AppDbContext context) : ITicketService
             ticket.Title,
             ticket.Description,
             ticket.Status.ToString(),
+            ticket.Priority.ToString(),
             ticket.CreatedById,
             ticket.CreatedBy.Username,
             ticket.AssignedToId,
