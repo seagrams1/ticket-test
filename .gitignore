@@ -1,0 +1,75 @@
+# ===========================
+# .NET / C# Build Artifacts
+# ===========================
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.rsuser
+*.DotSettings.user
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+**/[Dd]ebug/
+**/[Rr]elease/
+*.log
+TestResults/
+.coverage
+
+# EF Core migrations snapshots (keep migrations, ignore snapshots in some workflows)
+# Uncomment to ignore snapshot files:
+# **/Migrations/**Snapshot.cs
+
+# Secrets / local settings
+**/appsettings.Local.json
+**/appsettings.Development.json
+**/secrets.json
+
+# ===========================
+# Node / Vue / Frontend
+# ===========================
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+.env
+.env.*
+!.env.example
+coverage/
+.nyc_output/
+
+# Vite / build
+frontend/dist/
+frontend/.vite/
+
+# ===========================
+# Docker
+# ===========================
+# Keep docker-compose.yml tracked
+# Ignore override files
+docker-compose.override.yml
+
+# ===========================
+# OS / Editor
+# ===========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# ===========================
+# Misc
+# ===========================
+*.orig
+*.bak
+*.tmp
