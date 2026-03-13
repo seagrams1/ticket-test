@@ -4,6 +4,7 @@ export interface TicketSummary {
   id: number
   title: string
   status: string
+  priority: string
   createdBy: string
   createdById: number
   assignedTo: string | null
@@ -49,6 +50,7 @@ export interface PagedResult<T> {
 export interface CreateTicketRequest {
   title: string
   description?: string
+  priority?: string
 }
 
 export interface UpdateTicketRequest {
@@ -56,6 +58,7 @@ export interface UpdateTicketRequest {
   description?: string
   status?: string
   assignedToId?: number | null
+  priority?: string
 }
 
 export interface TicketListParams {

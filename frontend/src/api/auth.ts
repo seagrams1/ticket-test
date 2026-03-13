@@ -18,10 +18,18 @@ export interface AuthResponse {
   userId: number
 }
 
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
 export const authApi = {
   login: (data: LoginRequest) =>
     api.post<AuthResponse>('/auth/login', data),
 
   register: (data: RegisterRequest) =>
     api.post<AuthResponse>('/auth/register', data),
+
+  changePassword: (data: ChangePasswordRequest) =>
+    api.post<{ message: string }>('/auth/change-password', data),
 }

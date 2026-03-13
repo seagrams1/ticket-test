@@ -9,13 +9,12 @@ import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import InputText from 'primevue/inputtext'
 import Dialog from 'primevue/dialog'
-import Textarea from 'primevue/textarea'
 import Select from 'primevue/select'
 import Paginator from 'primevue/paginator'
 import Skeleton from 'primevue/skeleton'
 import { useToast } from 'primevue/usetoast'
-import Toast from 'primevue/toast'
 import { timeAgo } from '@/utils/time'
+import AppNav from '@/components/AppNav.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -24,13 +23,14 @@ const toast = useToast()
 const loading = ref(false)
 const searchQuery = ref('')
 const selectedStatus = ref<string>('')
-const showCreateDialog = ref(false)
+const selectedPriority = ref<string>('')
 const showAssignDialog = ref(false)
 const assigningTicketId = ref<number | null>(null)
 const selectedAgentId = ref<number | null>(null)
+const assigningLoading = ref(false)
 
 // Pagination
-const currentPage = ref(0) // PrimeVue Paginator is 0-indexed for the first= prop
+const currentPage = ref(0) // PrimeVue Paginator is 0-indexed
 const pageSize = ref(20)
 const totalCount = ref(0)
 
@@ -39,8 +39,6 @@ let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 const tickets = ref<TicketSummary[]>([])
 const agents = ref<AgentDto[]>([])
-const newTicket = ref({ title: '', description: '' })
-const creatingTicket = ref(false)
 
 const statusOptions = [
   { label: 'All Statuses', value: '' },
@@ -51,7 +49,15 @@ const statusOptions = [
   { label: 'Unresolved',  value: 'Unresolved' },
 ]
 
-// ─── Lifecycle ────────────────────────────────────────────────────────────────
+const priorityOptions = [
+  { label: 'All Priorities', value: '' },
+  { label: 'Low',      value: 'Low' },
+  { label: 'Medium',   value: 'Medium' },
+  { label: 'High',     value: 'High' },
+  { label: 'Critical', value: 'Critical' },
+]
+
+// ─── Lifecycle ─────────────────────────────────────────────────────────────────
 
 onMounted(async () => {
   await loadTickets()
@@ -70,12 +76,12 @@ watch(searchQuery, () => {
 })
 
 // Immediate watchers for filter/pagination
-watch(selectedStatus, () => {
+watch([selectedStatus, selectedPriority], () => {
   currentPage.value = 0
   loadTickets()
 })
 
-// ─── Data fetching ────────────────────────────────────────────────────────────
+// ─── Data fetching ─────────────────────────────────────────────────────────────
 
 async function loadTickets() {
   loading.value = true
@@ -110,29 +116,10 @@ function onPageChange(event: { first: number; rows: number; page: number }) {
   loadTickets()
 }
 
-// ─── Actions ──────────────────────────────────────────────────────────────────
+// ─── Actions ───────────────────────────────────────────────────────────────────
 
 function viewTicket(ticketId: number) {
   router.push({ name: 'ticket-detail', params: { id: ticketId } })
-}
-
-async function createTicket() {
-  if (!newTicket.value.title.trim()) return
-  creatingTicket.value = true
-  try {
-    const res = await ticketsApi.create({
-      title: newTicket.value.title.trim(),
-      description: newTicket.value.description,
-    })
-    showCreateDialog.value = false
-    newTicket.value = { title: '', description: '' }
-    toast.add({ severity: 'success', summary: 'Created', detail: 'Ticket created successfully', life: 3000 })
-    router.push({ name: 'ticket-detail', params: { id: res.data.id } })
-  } catch {
-    toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to create ticket', life: 3000 })
-  } finally {
-    creatingTicket.value = false
-  }
 }
 
 async function assignToMe(ticketId: number) {
@@ -154,6 +141,7 @@ function openAssignDialog(ticketId: number) {
 
 async function confirmAssign() {
   if (!assigningTicketId.value || !selectedAgentId.value) return
+  assigningLoading.value = true
   try {
     await ticketsApi.assignTicket(assigningTicketId.value, selectedAgentId.value)
     showAssignDialog.value = false
@@ -162,15 +150,12 @@ async function confirmAssign() {
   } catch (err: any) {
     const msg = err?.response?.data?.message || 'Failed to assign ticket'
     toast.add({ severity: 'error', summary: 'Error', detail: msg, life: 3000 })
+  } finally {
+    assigningLoading.value = false
   }
 }
 
-function logout() {
-  auth.logout()
-  router.push({ name: 'login' })
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function getStatusSeverity(status: string): string {
   switch (status) {
@@ -182,40 +167,27 @@ function getStatusSeverity(status: string): string {
     default:           return 'secondary'
   }
 }
+
+function getPrioritySeverity(priority: string): string {
+  switch (priority) {
+    case 'Low':      return 'secondary'
+    case 'Medium':   return 'info'
+    case 'High':     return 'warn'
+    case 'Critical': return 'danger'
+    default:         return 'secondary'
+  }
+}
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-900 text-white">
-    <Toast />
+    <AppNav />
 
-    <!-- Navbar -->
-    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/50 sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <i class="pi pi-ticket text-white text-sm"></i>
-          </div>
-          <span class="font-bold text-lg tracking-tight">TicketSystem</span>
-        </div>
-        <nav class="hidden md:flex items-center gap-6 text-sm text-slate-400">
-          <router-link to="/" class="hover:text-white transition-colors">Dashboard</router-link>
-          <router-link to="/tickets" class="text-white font-medium">Tickets</router-link>
-        </nav>
-        <div class="flex items-center gap-3">
-          <span class="text-slate-400 text-sm hidden sm:block">
-            <i class="pi pi-user mr-1"></i>{{ auth.username }}
-            <span v-if="auth.role" class="ml-1 text-xs text-indigo-400">({{ auth.role }})</span>
-          </span>
-          <Button icon="pi pi-sign-out" severity="secondary" text rounded @click="logout" />
-        </div>
-      </div>
-    </header>
-
-    <main class="max-w-7xl mx-auto px-6 py-10">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <!-- Page header -->
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h2 class="text-3xl font-bold tracking-tight">Tickets</h2>
+          <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">Tickets</h2>
           <p class="text-slate-400 mt-1">
             {{ totalCount }} ticket{{ totalCount !== 1 ? 's' : '' }} found
           </p>
@@ -223,15 +195,15 @@ function getStatusSeverity(status: string): string {
         <Button
           label="Create Ticket"
           icon="pi pi-plus"
-          class="bg-indigo-600 hover:bg-indigo-700 border-indigo-600 font-semibold"
-          @click="showCreateDialog = true"
+          class="bg-indigo-600 hover:bg-indigo-700 border-indigo-600 font-semibold w-full sm:w-auto"
+          @click="router.push({ name: 'create-ticket' })"
         />
       </div>
 
       <!-- Search + filter bar -->
-      <div class="flex flex-col sm:flex-row gap-3 mb-4">
+      <div class="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <!-- Search -->
-        <div class="relative flex-1 max-w-sm">
+        <div class="relative flex-1 min-w-0 sm:max-w-xs">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
             <i class="pi pi-search text-sm"></i>
           </span>
@@ -248,7 +220,16 @@ function getStatusSeverity(status: string): string {
           :options="statusOptions"
           optionLabel="label"
           optionValue="value"
-          class="min-w-40"
+          class="min-w-36"
+        />
+
+        <!-- Priority filter -->
+        <Select
+          v-model="selectedPriority"
+          :options="priorityOptions"
+          optionLabel="label"
+          optionValue="value"
+          class="min-w-36"
         />
       </div>
 
@@ -261,7 +242,7 @@ function getStatusSeverity(status: string): string {
 
       <!-- DataTable -->
       <template v-else>
-        <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl overflow-hidden">
+        <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl overflow-x-auto">
           <DataTable
             :value="tickets"
             stripedRows
@@ -295,20 +276,26 @@ function getStatusSeverity(status: string): string {
               </template>
             </Column>
 
-            <Column field="assignedTo" header="Assignee" style="width: 10rem">
+            <Column field="priority" header="Priority" style="width: 7rem">
+              <template #body="{ data }">
+                <Tag :value="data.priority" :severity="getPrioritySeverity(data.priority)" />
+              </template>
+            </Column>
+
+            <Column field="assignedTo" header="Assignee" style="width: 9rem" class="hidden sm:table-cell">
               <template #body="{ data }">
                 <span v-if="data.assignedTo" class="text-slate-300 text-sm">{{ data.assignedTo }}</span>
                 <span v-else class="text-slate-500 text-sm italic">Unassigned</span>
               </template>
             </Column>
 
-            <Column field="createdBy" header="Created By" style="width: 9rem">
+            <Column field="createdBy" header="Created By" style="width: 9rem" class="hidden md:table-cell">
               <template #body="{ data }">
                 <span class="text-slate-400 text-sm">{{ data.createdBy }}</span>
               </template>
             </Column>
 
-            <Column field="createdAt" header="Date" style="width: 9rem">
+            <Column field="createdAt" header="Date" style="width: 8rem" class="hidden lg:table-cell">
               <template #body="{ data }">
                 <span class="text-slate-400 text-sm" :title="new Date(data.createdAt).toLocaleString()">
                   {{ timeAgo(data.createdAt) }}
@@ -317,7 +304,7 @@ function getStatusSeverity(status: string): string {
             </Column>
 
             <!-- Actions column -->
-            <Column header="" style="width: 12rem">
+            <Column header="" style="width: 10rem">
               <template #body="{ data }">
                 <div class="flex items-center gap-1">
                   <Button
@@ -352,11 +339,15 @@ function getStatusSeverity(status: string): string {
             </Column>
 
             <template #empty>
-              <div class="text-center py-12 text-slate-400">
-                <i class="pi pi-inbox text-4xl mb-3 block"></i>
-                <p class="font-medium">No tickets found</p>
-                <p v-if="searchQuery || selectedStatus" class="text-sm mt-1">
-                  Try adjusting your search or filter
+              <div class="text-center py-16 text-slate-400">
+                <i class="pi pi-inbox text-5xl mb-4 block opacity-50"></i>
+                <p class="font-medium text-lg">No tickets found</p>
+                <p v-if="searchQuery || selectedStatus || selectedPriority" class="text-sm mt-1">
+                  Try adjusting your search or filters
+                </p>
+                <p v-else class="text-sm mt-1">
+                  Get started by
+                  <button class="text-indigo-400 hover:text-indigo-300 underline" @click="router.push({ name: 'create-ticket' })">creating a ticket</button>
                 </p>
               </div>
             </template>
@@ -375,46 +366,6 @@ function getStatusSeverity(status: string): string {
         />
       </template>
     </main>
-
-    <!-- Create Ticket Dialog -->
-    <Dialog
-      v-model:visible="showCreateDialog"
-      header="Create New Ticket"
-      modal
-      class="w-full max-w-lg"
-    >
-      <div class="space-y-4 py-2">
-        <div class="space-y-2">
-          <label class="block text-sm font-medium">Title</label>
-          <InputText
-            v-model="newTicket.title"
-            placeholder="Brief description of the issue"
-            class="w-full"
-          />
-        </div>
-        <div class="space-y-2">
-          <label class="block text-sm font-medium">Description</label>
-          <Textarea
-            v-model="newTicket.description"
-            placeholder="Describe the issue in detail..."
-            rows="4"
-            class="w-full"
-          />
-        </div>
-      </div>
-      <template #footer>
-        <div class="flex gap-2 justify-end">
-          <Button label="Cancel" severity="secondary" outlined @click="showCreateDialog = false" />
-          <Button
-            label="Create Ticket"
-            icon="pi pi-check"
-            :loading="creatingTicket"
-            :disabled="!newTicket.title.trim()"
-            @click="createTicket"
-          />
-        </div>
-      </template>
-    </Dialog>
 
     <!-- Admin Assign Dialog -->
     <Dialog
@@ -441,6 +392,7 @@ function getStatusSeverity(status: string): string {
             label="Assign"
             icon="pi pi-check"
             :disabled="!selectedAgentId"
+            :loading="assigningLoading"
             @click="confirmAssign"
           />
         </div>

@@ -1,20 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ticketsApi, usersApi, type TicketDetail, type TicketHistory, type AgentDto } from '@/api/tickets'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
 import Textarea from 'primevue/textarea'
+import InputText from 'primevue/inputtext'
 import Divider from 'primevue/divider'
 import Skeleton from 'primevue/skeleton'
 import Select from 'primevue/select'
+import Dialog from 'primevue/dialog'
 import Timeline from 'primevue/timeline'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
-import Toast from 'primevue/toast'
-import ConfirmDialog from 'primevue/confirmdialog'
 import { timeAgo, formatDate } from '@/utils/time'
+import AppNav from '@/components/AppNav.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,10 +39,15 @@ const editingCommentContent = ref('')
 const savingComment = ref(false)
 
 // Status/assignee editing
-const editingStatus = ref(false)
 const selectedStatus = ref('')
 const selectedAssigneeId = ref<number | null>(null)
 const saving = ref(false)
+
+// Edit ticket modal
+const showEditDialog = ref(false)
+const editForm = reactive({ title: '', description: '', priority: 'Medium' })
+const editErrors = reactive({ title: '', description: '' })
+const savingEdit = ref(false)
 
 // ─── Status options ────────────────────────────────────────────────────────────
 
@@ -53,16 +59,26 @@ const statusOptions = [
   { label: 'Unresolved',  value: 'Unresolved' },
 ]
 
+const priorityOptions = [
+  { label: '🟢 Low',      value: 'Low' },
+  { label: '🔵 Medium',   value: 'Medium' },
+  { label: '🟡 High',     value: 'High' },
+  { label: '🔴 Critical', value: 'Critical' },
+]
+
 // ─── Computed permissions ──────────────────────────────────────────────────────
 
-const isSubmitter = computed(() => auth.role === 'Submitter')
-const isAgent     = computed(() => auth.role === 'Agent')
-const isAdmin     = computed(() => auth.role === 'Admin')
-
+const isSubmitter    = computed(() => auth.role === 'Submitter')
+const isAgent        = computed(() => auth.role === 'Agent')
+const isAdmin        = computed(() => auth.role === 'Admin')
 const isAssignedToMe = computed(() => ticket.value?.assignedToId === auth.userId)
 const isUnassigned   = computed(() => ticket.value?.assignedToId === null)
 
 const canEditStatus = computed(() =>
+  isAdmin.value || (isAgent.value && isAssignedToMe.value)
+)
+
+const canEditTicket = computed(() =>
   isAdmin.value || (isAgent.value && isAssignedToMe.value)
 )
 
@@ -89,11 +105,21 @@ function parseHistoryEvent(event: TicketHistory): TimelineEvent {
     }
   }
 
+  if (fieldChanged === 'Priority') {
+    return {
+      label: 'Priority changed',
+      description: `${oldValue} → ${newValue} by ${changedBy}`,
+      date: createdAt,
+      icon: 'pi pi-flag',
+      color: '#f59e0b',
+    }
+  }
+
   if (fieldChanged === 'AssignedToId') {
     if (!oldValue && newValue) {
       return {
         label: 'Ticket assigned',
-        description: `Assigned (agent ID ${newValue}) by ${changedBy}`,
+        description: `Assigned by ${changedBy}`,
         date: createdAt,
         icon: 'pi pi-user-plus',
         color: '#22c55e',
@@ -110,7 +136,7 @@ function parseHistoryEvent(event: TicketHistory): TimelineEvent {
     }
     return {
       label: 'Reassigned',
-      description: `Reassigned from ID ${oldValue} to ID ${newValue} by ${changedBy}`,
+      description: `Reassigned by ${changedBy}`,
       date: createdAt,
       icon: 'pi pi-user-edit',
       color: '#f59e0b',
@@ -119,61 +145,25 @@ function parseHistoryEvent(event: TicketHistory): TimelineEvent {
 
   if (fieldChanged === 'Comment') {
     if (newValue === 'added') {
-      return {
-        label: 'Comment added',
-        description: `Comment added by ${changedBy}`,
-        date: createdAt,
-        icon: 'pi pi-comment',
-        color: '#0ea5e9',
-      }
+      return { label: 'Comment added', description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-comment', color: '#0ea5e9' }
     }
     if (newValue === 'edited') {
-      return {
-        label: 'Comment edited',
-        description: `Comment edited by ${changedBy}`,
-        date: createdAt,
-        icon: 'pi pi-pencil',
-        color: '#a855f7',
-      }
+      return { label: 'Comment edited', description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-pencil', color: '#a855f7' }
     }
     if (newValue === 'deleted') {
-      return {
-        label: 'Comment deleted',
-        description: `Comment deleted by ${changedBy}`,
-        date: createdAt,
-        icon: 'pi pi-trash',
-        color: '#ef4444',
-      }
+      return { label: 'Comment deleted', description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-trash', color: '#ef4444' }
     }
   }
 
   if (fieldChanged === 'Title') {
-    return {
-      label: 'Title updated',
-      description: `Updated by ${changedBy}`,
-      date: createdAt,
-      icon: 'pi pi-pencil',
-      color: '#94a3b8',
-    }
+    return { label: 'Title updated', description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-pencil', color: '#94a3b8' }
   }
 
   if (fieldChanged === 'Description') {
-    return {
-      label: 'Description updated',
-      description: `Updated by ${changedBy}`,
-      date: createdAt,
-      icon: 'pi pi-file-edit',
-      color: '#94a3b8',
-    }
+    return { label: 'Description updated', description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-file-edit', color: '#94a3b8' }
   }
 
-  return {
-    label: `${fieldChanged} changed`,
-    description: `By ${changedBy}`,
-    date: createdAt,
-    icon: 'pi pi-history',
-    color: '#64748b',
-  }
+  return { label: `${fieldChanged} changed`, description: `By ${changedBy}`, date: createdAt, icon: 'pi pi-history', color: '#64748b' }
 }
 
 const timelineEvents = computed(() =>
@@ -202,7 +192,6 @@ async function loadTicket() {
     if (err?.response?.status === 404) {
       notFound.value = true
     }
-    // 403 handled globally (redirects to access-denied)
   } finally {
     loading.value = false
   }
@@ -230,7 +219,6 @@ async function saveChanges() {
         : undefined,
     })
     ticket.value = res.data
-    editingStatus.value = false
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Ticket updated', life: 3000 })
   } catch (err: any) {
     const msg = err?.response?.data?.message || 'Failed to update ticket'
@@ -260,6 +248,56 @@ async function assignToAgent() {
   } catch (err: any) {
     const msg = err?.response?.data?.message || 'Failed to assign ticket'
     toast.add({ severity: 'error', summary: 'Error', detail: msg, life: 3000 })
+  }
+}
+
+// ─── Edit ticket ───────────────────────────────────────────────────────────────
+
+function openEditDialog() {
+  if (!ticket.value) return
+  editForm.title = ticket.value.title
+  editForm.description = ticket.value.description
+  editForm.priority = ticket.value.priority
+  editErrors.title = ''
+  editErrors.description = ''
+  showEditDialog.value = true
+}
+
+function validateEdit(): boolean {
+  let valid = true
+  editErrors.title = ''
+  editErrors.description = ''
+  if (!editForm.title.trim()) {
+    editErrors.title = 'Title is required.'
+    valid = false
+  } else if (editForm.title.trim().length > 255) {
+    editErrors.title = 'Title must be 255 characters or fewer.'
+    valid = false
+  }
+  if (!editForm.description.trim()) {
+    editErrors.description = 'Description is required.'
+    valid = false
+  }
+  return valid
+}
+
+async function saveEdit() {
+  if (!validateEdit()) return
+  savingEdit.value = true
+  try {
+    const res = await ticketsApi.update(ticketId, {
+      title: editForm.title.trim(),
+      description: editForm.description.trim(),
+      priority: editForm.priority,
+    })
+    ticket.value = res.data
+    showEditDialog.value = false
+    toast.add({ severity: 'success', summary: 'Saved', detail: 'Ticket updated successfully', life: 3000 })
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || 'Failed to update ticket'
+    toast.add({ severity: 'error', summary: 'Error', detail: msg, life: 3000 })
+  } finally {
+    savingEdit.value = false
   }
 }
 
@@ -334,12 +372,7 @@ function canDeleteComment(authorId: number): boolean {
   return auth.userId === authorId || isAdmin.value
 }
 
-function logout() {
-  auth.logout()
-  router.push({ name: 'login' })
-}
-
-// ─── Status helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function getStatusSeverity(status: string): string {
   switch (status) {
@@ -351,39 +384,25 @@ function getStatusSeverity(status: string): string {
     default:           return 'secondary'
   }
 }
+
+function getPrioritySeverity(priority: string): string {
+  switch (priority) {
+    case 'Low':      return 'secondary'
+    case 'Medium':   return 'info'
+    case 'High':     return 'warn'
+    case 'Critical': return 'danger'
+    default:         return 'secondary'
+  }
+}
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-900 text-white">
-    <Toast />
-    <ConfirmDialog />
+    <AppNav />
 
-    <!-- Navbar -->
-    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/50 sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <i class="pi pi-ticket text-white text-sm"></i>
-          </div>
-          <span class="font-bold text-lg tracking-tight">TicketSystem</span>
-        </div>
-        <nav class="hidden md:flex items-center gap-6 text-sm text-slate-400">
-          <router-link to="/" class="hover:text-white transition-colors">Dashboard</router-link>
-          <router-link to="/tickets" class="hover:text-white transition-colors">Tickets</router-link>
-        </nav>
-        <div class="flex items-center gap-3">
-          <span class="text-slate-400 text-sm hidden sm:block">
-            <i class="pi pi-user mr-1"></i>{{ auth.username }}
-            <span v-if="auth.role" class="ml-1 text-xs text-indigo-400">({{ auth.role }})</span>
-          </span>
-          <Button icon="pi pi-sign-out" severity="secondary" text rounded @click="logout" />
-        </div>
-      </div>
-    </header>
-
-    <main class="max-w-5xl mx-auto px-6 py-10">
+    <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <!-- Breadcrumb -->
-      <nav class="flex items-center gap-2 text-sm text-slate-400 mb-6">
+      <nav class="flex items-center gap-2 text-sm text-slate-400 mb-6 flex-wrap">
         <router-link to="/" class="hover:text-white transition-colors">Dashboard</router-link>
         <i class="pi pi-chevron-right text-xs"></i>
         <router-link to="/tickets" class="hover:text-white transition-colors">Tickets</router-link>
@@ -396,9 +415,10 @@ function getStatusSeverity(status: string): string {
       <!-- Loading skeleton -->
       <template v-if="loading">
         <div class="space-y-4">
-          <Skeleton height="2rem" class="bg-slate-700" />
-          <Skeleton height="1rem" width="60%" class="bg-slate-700" />
-          <Skeleton height="8rem" class="bg-slate-700" />
+          <Skeleton height="2.5rem" class="bg-slate-700 rounded-lg" />
+          <Skeleton height="1rem" width="60%" class="bg-slate-700 rounded-lg" />
+          <Skeleton height="10rem" class="bg-slate-700 rounded-xl" />
+          <Skeleton height="6rem" class="bg-slate-700 rounded-xl" />
         </div>
       </template>
 
@@ -414,7 +434,7 @@ function getStatusSeverity(status: string): string {
 
       <template v-else-if="ticket">
         <!-- Ticket header card -->
-        <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-6 mb-6">
+        <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5 sm:p-6 mb-6">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 text-slate-400 text-sm mb-2">
@@ -422,9 +442,22 @@ function getStatusSeverity(status: string): string {
                 <span>·</span>
                 <span :title="formatDate(ticket.createdAt)">{{ timeAgo(ticket.createdAt) }}</span>
               </div>
-              <h2 class="text-2xl font-bold leading-tight">{{ ticket.title }}</h2>
+              <h2 class="text-xl sm:text-2xl font-bold leading-tight">{{ ticket.title }}</h2>
             </div>
-            <Tag :value="ticket.status" :severity="getStatusSeverity(ticket.status)" />
+            <div class="flex items-center gap-2 flex-wrap">
+              <Tag :value="ticket.priority" :severity="getPrioritySeverity(ticket.priority)" />
+              <Tag :value="ticket.status" :severity="getStatusSeverity(ticket.status)" />
+              <!-- Edit button for admins/assigned agents -->
+              <Button
+                v-if="canEditTicket"
+                icon="pi pi-pencil"
+                label="Edit"
+                severity="secondary"
+                outlined
+                size="small"
+                @click="openEditDialog"
+              />
+            </div>
           </div>
 
           <Divider class="border-slate-700 my-4" />
@@ -461,7 +494,7 @@ function getStatusSeverity(status: string): string {
           <div v-if="!isSubmitter" class="pt-4 border-t border-slate-700">
 
             <!-- Agent: Assign to me (if unassigned) -->
-            <div v-if="isAgent && isUnassigned" class="flex items-center gap-3 mb-4">
+            <div v-if="isAgent && isUnassigned" class="flex items-center gap-3 mb-4 flex-wrap">
               <Button
                 label="Assign to me"
                 icon="pi pi-user-plus"
@@ -496,7 +529,6 @@ function getStatusSeverity(status: string): string {
                   optionValue="id"
                   class="min-w-36"
                   size="small"
-                  :disabled="ticket.assignedToId !== null && selectedAssigneeId === ticket.assignedToId"
                 />
               </div>
 
@@ -510,7 +542,7 @@ function getStatusSeverity(status: string): string {
             </div>
 
             <!-- Admin: Assign to agent when unassigned -->
-            <div v-if="isAdmin && isUnassigned" class="flex items-center gap-3 mt-3">
+            <div v-if="isAdmin && isUnassigned" class="flex items-center gap-3 mt-3 flex-wrap">
               <Select
                 v-model="selectedAssigneeId"
                 :options="agents"
@@ -550,21 +582,20 @@ function getStatusSeverity(status: string): string {
             <div
               v-for="comment in ticket.comments"
               :key="comment.id"
-              class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5"
+              class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-4 sm:p-5"
             >
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-2">
-                  <div class="w-7 h-7 rounded-full bg-indigo-600/30 flex items-center justify-center text-indigo-400 text-xs font-bold">
+              <div class="flex items-center justify-between mb-3 gap-2">
+                <div class="flex items-center gap-2 min-w-0">
+                  <div class="w-7 h-7 rounded-full bg-indigo-600/30 flex items-center justify-center text-indigo-400 text-xs font-bold flex-shrink-0">
                     {{ comment.author.charAt(0).toUpperCase() }}
                   </div>
-                  <span class="font-medium text-sm">{{ comment.author }}</span>
-                  <span v-if="comment.updatedAt" class="text-xs text-slate-500 italic">(edited)</span>
+                  <span class="font-medium text-sm truncate">{{ comment.author }}</span>
+                  <span v-if="comment.updatedAt" class="text-xs text-slate-500 italic flex-shrink-0">(edited)</span>
                 </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-slate-500 text-xs" :title="formatDate(comment.createdAt)">
+                <div class="flex items-center gap-1 flex-shrink-0">
+                  <span class="text-slate-500 text-xs hidden sm:inline" :title="formatDate(comment.createdAt)">
                     {{ timeAgo(comment.createdAt) }}
                   </span>
-                  <!-- Edit button (author only) -->
                   <Button
                     v-if="canEditComment(comment.authorId) && editingCommentId !== comment.id"
                     icon="pi pi-pencil"
@@ -574,7 +605,6 @@ function getStatusSeverity(status: string): string {
                     class="!w-7 !h-7"
                     @click="startEditComment(comment.id, comment.content)"
                   />
-                  <!-- Delete button (author or admin) -->
                   <Button
                     v-if="canDeleteComment(comment.authorId)"
                     icon="pi pi-trash"
@@ -617,12 +647,14 @@ function getStatusSeverity(status: string): string {
               <p v-else class="text-slate-300 text-sm leading-relaxed">{{ comment.content }}</p>
             </div>
 
-            <div v-if="ticket.comments.length === 0" class="text-slate-500 text-sm italic">
-              No comments yet.
+            <!-- Empty comments state -->
+            <div v-if="ticket.comments.length === 0" class="text-center py-8 text-slate-500 bg-slate-800/30 rounded-xl border border-slate-700/30">
+              <i class="pi pi-comments text-3xl mb-2 block opacity-50"></i>
+              <p class="text-sm">No comments yet. Be the first to comment!</p>
             </div>
 
-            <!-- Add comment — all roles -->
-            <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+            <!-- Add comment -->
+            <div class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-4 sm:p-5">
               <h4 class="text-sm font-semibold mb-3">Add a comment</h4>
               <Textarea
                 v-model="newComment"
@@ -641,11 +673,12 @@ function getStatusSeverity(status: string): string {
             </div>
           </div>
 
-          <!-- History section — PrimeVue Timeline -->
+          <!-- History section -->
           <div>
             <h3 class="text-lg font-semibold mb-4">History</h3>
-            <div v-if="timelineEvents.length === 0" class="text-slate-500 text-sm italic">
-              No history yet.
+            <div v-if="timelineEvents.length === 0" class="text-center py-8 text-slate-500 bg-slate-800/30 rounded-xl border border-slate-700/30">
+              <i class="pi pi-history text-3xl mb-2 block opacity-50"></i>
+              <p class="text-sm">No activity yet.</p>
             </div>
             <Timeline
               v-else
@@ -674,11 +707,72 @@ function getStatusSeverity(status: string): string {
         </div>
       </template>
     </main>
+
+    <!-- Edit Ticket Dialog -->
+    <Dialog
+      v-model:visible="showEditDialog"
+      header="Edit Ticket"
+      modal
+      class="w-full max-w-lg mx-4"
+    >
+      <div class="space-y-4 py-2">
+        <!-- Title -->
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium">Title <span class="text-red-400">*</span></label>
+          <InputText
+            v-model="editForm.title"
+            class="w-full"
+            :class="{ 'border-red-500': editErrors.title }"
+            @input="editErrors.title = ''"
+          />
+          <p v-if="editErrors.title" class="text-red-400 text-xs">
+            <i class="pi pi-exclamation-circle mr-1"></i>{{ editErrors.title }}
+          </p>
+        </div>
+
+        <!-- Priority -->
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium">Priority</label>
+          <Select
+            v-model="editForm.priority"
+            :options="priorityOptions"
+            optionLabel="label"
+            optionValue="value"
+            class="w-full"
+          />
+        </div>
+
+        <!-- Description -->
+        <div class="space-y-1.5">
+          <label class="block text-sm font-medium">Description <span class="text-red-400">*</span></label>
+          <Textarea
+            v-model="editForm.description"
+            rows="5"
+            class="w-full"
+            :class="{ 'border-red-500': editErrors.description }"
+            @input="editErrors.description = ''"
+          />
+          <p v-if="editErrors.description" class="text-red-400 text-xs">
+            <i class="pi pi-exclamation-circle mr-1"></i>{{ editErrors.description }}
+          </p>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex gap-2 justify-end">
+          <Button label="Cancel" severity="secondary" outlined @click="showEditDialog = false" />
+          <Button
+            label="Save Changes"
+            icon="pi pi-check"
+            :loading="savingEdit"
+            @click="saveEdit"
+          />
+        </div>
+      </template>
+    </Dialog>
   </div>
 </template>
 
 <style scoped>
-/* Ensure Timeline looks right on dark background */
 :deep(.p-timeline-event-connector) {
   background-color: rgb(51 65 85);
 }

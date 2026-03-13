@@ -23,9 +23,21 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/tickets/new',
+      name: 'create-ticket',
+      component: () => import('@/views/CreateTicketView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/tickets/:id',
       name: 'ticket-detail',
       component: () => import('@/views/TicketDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('@/views/ProfileView.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -35,8 +47,11 @@ const router = createRouter({
       meta: { requiresAuth: false },
     },
     {
+      // 404 catch-all
       path: '/:pathMatch(.*)*',
-      redirect: '/',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
+      meta: { requiresAuth: false },
     },
   ],
 })

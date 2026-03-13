@@ -4,6 +4,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 import { ticketsApi, type TicketStats } from '@/api/tickets'
 import Button from 'primevue/button'
+import Skeleton from 'primevue/skeleton'
+import AppNav from '@/components/AppNav.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -59,63 +61,33 @@ function statCards() {
     },
   ]
 }
-
-function logout() {
-  auth.logout()
-  router.push({ name: 'login' })
-}
 </script>
 
 <template>
   <div class="min-h-screen bg-slate-900 text-white">
-    <!-- Navbar -->
-    <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/50 sticky top-0 z-10">
-      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-            <i class="pi pi-ticket text-white text-sm"></i>
-          </div>
-          <span class="font-bold text-lg tracking-tight">TicketSystem</span>
-        </div>
-        <nav class="hidden md:flex items-center gap-6 text-sm text-slate-400">
-          <router-link to="/" class="text-white font-medium">Dashboard</router-link>
-          <router-link to="/tickets" class="hover:text-white transition-colors">Tickets</router-link>
-        </nav>
-        <div class="flex items-center gap-3">
-          <span class="text-slate-400 text-sm hidden sm:block">
-            <i class="pi pi-user mr-1"></i>{{ auth.username }}
-            <span v-if="auth.role" class="ml-1 text-xs text-indigo-400">({{ auth.role }})</span>
-          </span>
-          <Button icon="pi pi-sign-out" severity="secondary" text rounded @click="logout" v-tooltip="'Sign out'" />
-        </div>
-      </div>
-    </header>
+    <AppNav />
 
-    <main class="max-w-7xl mx-auto px-6 py-10">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
       <!-- Welcome -->
-      <div class="mb-10">
-        <h2 class="text-3xl font-bold tracking-tight">
+      <div class="mb-8 sm:mb-10">
+        <h2 class="text-2xl sm:text-3xl font-bold tracking-tight">
           Welcome back, <span class="text-indigo-400">{{ auth.username }}</span> 👋
         </h2>
         <p class="text-slate-400 mt-2">Here's what's going on with your support system today.</p>
       </div>
 
       <!-- Stats cards -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+      <div v-if="loadingStats" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
+        <Skeleton v-for="i in 4" :key="i" height="6rem" class="bg-slate-700 rounded-xl" />
+      </div>
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-10">
         <div
           v-for="stat in statCards()"
           :key="stat.label"
           class="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5 flex items-start gap-4 hover:border-slate-600 transition-colors"
         >
           <div :class="[stat.bg, 'p-3 rounded-xl flex-shrink-0']">
-            <i
-              :class="[
-                stat.icon,
-                stat.color,
-                'text-xl',
-                loadingStats ? 'pi-spin' : '',
-              ]"
-            ></i>
+            <i :class="[stat.icon, stat.color, 'text-xl']"></i>
           </div>
           <div>
             <p class="text-slate-400 text-sm">{{ stat.label }}</p>
@@ -143,7 +115,15 @@ function logout() {
               class="w-full justify-start"
               severity="secondary"
               outlined
-              @click="router.push({ name: 'tickets' })"
+              @click="router.push({ name: 'create-ticket' })"
+            />
+            <Button
+              label="My Profile"
+              icon="pi pi-user"
+              class="w-full justify-start"
+              severity="secondary"
+              outlined
+              @click="router.push({ name: 'profile' })"
             />
           </div>
         </div>
@@ -155,13 +135,13 @@ function logout() {
               <p><i class="pi pi-check text-green-400 mr-2"></i>View all tickets</p>
               <p><i class="pi pi-check text-green-400 mr-2"></i>Assign tickets to agents</p>
               <p><i class="pi pi-check text-green-400 mr-2"></i>Update status on any ticket</p>
-              <p><i class="pi pi-check text-green-400 mr-2"></i>Create tickets</p>
+              <p><i class="pi pi-check text-green-400 mr-2"></i>Create and edit tickets</p>
             </div>
             <div v-else-if="auth.role === 'Agent'" class="space-y-1">
               <p><i class="pi pi-check text-green-400 mr-2"></i>View assigned + unassigned tickets</p>
               <p><i class="pi pi-check text-green-400 mr-2"></i>Self-assign unassigned tickets</p>
               <p><i class="pi pi-check text-green-400 mr-2"></i>Update status on your tickets</p>
-              <p><i class="pi pi-check text-green-400 mr-2"></i>Create tickets</p>
+              <p><i class="pi pi-check text-green-400 mr-2"></i>Create and edit tickets</p>
             </div>
             <div v-else class="space-y-1">
               <p><i class="pi pi-check text-green-400 mr-2"></i>Create tickets</p>
