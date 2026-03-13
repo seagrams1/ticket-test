@@ -19,6 +19,30 @@ public record AssignTicketRequest(
     int? AssignedToId
 );
 
+public record AddCommentRequest(
+    [Required] string Content
+);
+
+public record EditCommentRequest(
+    [Required] string Content
+);
+
+// Query parameters for GET /api/tickets
+public record TicketQueryParams(
+    string? Search = null,
+    TicketStatus? Status = null,
+    bool AssignedToMe = false,
+    int Page = 1,
+    int PageSize = 20
+);
+
+public record PagedResult<T>(
+    IEnumerable<T> Items,
+    int TotalCount,
+    int Page,
+    int PageSize
+);
+
 public record TicketSummaryDto(
     int Id,
     string Title,
@@ -52,7 +76,8 @@ public record TicketCommentDto(
     int AuthorId,
     string Author,
     string Content,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    DateTime? UpdatedAt
 );
 
 public record TicketHistoryDto(
@@ -64,10 +89,6 @@ public record TicketHistoryDto(
     int ChangedById,
     string ChangedBy,
     DateTime CreatedAt
-);
-
-public record AddCommentRequest(
-    [Required] string Content
 );
 
 public record AgentDto(

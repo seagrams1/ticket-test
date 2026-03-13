@@ -40,6 +40,9 @@ public class TicketServiceTests : IDisposable
         _context.SaveChanges();
     }
 
+    // Helper to create default query params
+    private static TicketQueryParams DefaultParams() => new TicketQueryParams();
+
     // ─── Existing tests ────────────────────────────────────────────────────────
 
     [Fact]
@@ -88,7 +91,7 @@ public class TicketServiceTests : IDisposable
         await _service.CreateAsync(new CreateTicketRequest("Agent Ticket"), createdById: AgentId);
         await _service.CreateAsync(new CreateTicketRequest("Submitter Ticket"), createdById: SubmitterId);
 
-        var results = (await _service.GetAllAsync(SubmitterId, UserRole.Submitter)).ToList();
+        var results = (await _service.GetAllAsync(DefaultParams(), SubmitterId, UserRole.Submitter)).Items.ToList();
 
         Assert.Single(results);
         Assert.Equal("Submitter Ticket", results[0].Title);
@@ -97,18 +100,13 @@ public class TicketServiceTests : IDisposable
     [Fact]
     public async Task GetAllAsync_AgentShouldSeeAssignedAndUnassignedTickets()
     {
-        // Unassigned ticket
         var unassigned = await _service.CreateAsync(new CreateTicketRequest("Unassigned"), createdById: SubmitterId);
-
-        // Ticket assigned to our agent
         var assigned = await _service.CreateAsync(new CreateTicketRequest("Assigned to agent1"), createdById: SubmitterId);
         await _service.AssignAsync(assigned.Id, AgentId, AdminId);
-
-        // Ticket assigned to a different agent — should NOT appear
         var otherAgent = await _service.CreateAsync(new CreateTicketRequest("Assigned to agent2"), createdById: SubmitterId);
         await _service.AssignAsync(otherAgent.Id, Agent2Id, AdminId);
 
-        var results = (await _service.GetAllAsync(AgentId, UserRole.Agent)).ToList();
+        var results = (await _service.GetAllAsync(DefaultParams(), AgentId, UserRole.Agent)).Items.ToList();
 
         Assert.Equal(2, results.Count);
         Assert.Contains(results, r => r.Title == "Unassigned");
@@ -123,7 +121,7 @@ public class TicketServiceTests : IDisposable
         var t2 = await _service.CreateAsync(new CreateTicketRequest("Ticket 2"), createdById: SubmitterId);
         await _service.AssignAsync(t2.Id, AgentId, AdminId);
 
-        var results = (await _service.GetAllAsync(AdminId, UserRole.Admin)).ToList();
+        var results = (await _service.GetAllAsync(DefaultParams(), AdminId, UserRole.Admin)).Items.ToList();
 
         Assert.Equal(2, results.Count);
     }
@@ -218,6 +216,196 @@ public class TicketServiceTests : IDisposable
     public async Task AddCommentAsync_ShouldReturnNullForNonExistentTicket()
     {
         var result = await _service.AddCommentAsync(9999, new AddCommentRequest("test"), AgentId);
+        Assert.Null(result);
+    }
+
+    // ─── Phase 3: Search & Filter tests ────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAllAsync_SearchByTitle_ShouldReturnMatchingTickets()
+    {
+        await _service.CreateAsync(new CreateTicketRequest("Login bug fix", "Fix the auth module"), SubmitterId);
+        await _service.CreateAsync(new CreateTicketRequest("Payment gateway issue", "Stripe integration"), SubmitterId);
+        await _service.CreateAsync(new CreateTicketRequest("Dashboard layout"), SubmitterId);
+
+        var result = await _service.GetAllAsync(new TicketQueryParams(Search: "login"), AdminId, UserRole.Admin);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Login bug fix", result.Items.First().Title);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_SearchByDescription_ShouldReturnMatchingTickets()
+    {
+        await _service.CreateAsync(new CreateTicketRequest("Ticket A", "Stripe payment integration"), SubmitterId);
+        await _service.CreateAsync(new CreateTicketRequest("Ticket B", "Nothing relevant"), SubmitterId);
+
+        var result = await _service.GetAllAsync(new TicketQueryParams(Search: "stripe"), AdminId, UserRole.Admin);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Ticket A", result.Items.First().Title);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_FilterByStatus_ShouldReturnOnlyMatchingStatus()
+    {
+        var t1 = await _service.CreateAsync(new CreateTicketRequest("Open ticket"), SubmitterId);
+        var t2 = await _service.CreateAsync(new CreateTicketRequest("InProgress ticket"), SubmitterId);
+        await _service.UpdateAsync(t2.Id, new UpdateTicketRequest(null, null, TicketStatus.InProgress, null), AdminId);
+
+        var result = await _service.GetAllAsync(new TicketQueryParams(Status: TicketStatus.Open), AdminId, UserRole.Admin);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Open", result.Items.First().Status);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_AssignedToMe_ShouldReturnOnlyAssignedTickets()
+    {
+        var t1 = await _service.CreateAsync(new CreateTicketRequest("My ticket"), SubmitterId);
+        await _service.AssignAsync(t1.Id, AgentId, AdminId);
+        var t2 = await _service.CreateAsync(new CreateTicketRequest("Other ticket"), SubmitterId);
+        await _service.AssignAsync(t2.Id, Agent2Id, AdminId);
+
+        var result = await _service.GetAllAsync(
+            new TicketQueryParams(AssignedToMe: true),
+            AgentId,
+            UserRole.Agent);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("My ticket", result.Items.First().Title);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_Pagination_ShouldReturnCorrectPage()
+    {
+        for (int i = 1; i <= 5; i++)
+            await _service.CreateAsync(new CreateTicketRequest($"Ticket {i}"), SubmitterId);
+
+        var page1 = await _service.GetAllAsync(new TicketQueryParams(Page: 1, PageSize: 2), AdminId, UserRole.Admin);
+        var page2 = await _service.GetAllAsync(new TicketQueryParams(Page: 2, PageSize: 2), AdminId, UserRole.Admin);
+        var page3 = await _service.GetAllAsync(new TicketQueryParams(Page: 3, PageSize: 2), AdminId, UserRole.Admin);
+
+        Assert.Equal(5, page1.TotalCount);
+        Assert.Equal(2, page1.Items.Count());
+        Assert.Equal(2, page2.Items.Count());
+        Assert.Equal(1, page3.Items.Count());
+    }
+
+    [Fact]
+    public async Task GetAllAsync_SearchAppliesRoleScoping_SubmitterOnlySeesOwn()
+    {
+        await _service.CreateAsync(new CreateTicketRequest("Login issue for submitter"), SubmitterId);
+        await _service.CreateAsync(new CreateTicketRequest("Login issue for agent"), AgentId);
+
+        var result = await _service.GetAllAsync(new TicketQueryParams(Search: "login"), SubmitterId, UserRole.Submitter);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Login issue for submitter", result.Items.First().Title);
+    }
+
+    // ─── Phase 3: Comment edit/delete authorization tests ──────────────────────
+
+    [Fact]
+    public async Task EditCommentAsync_AuthorCanEditOwnComment()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Edit Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Original"), AgentId);
+
+        var result = await _service.EditCommentAsync(
+            ticket.Id, comment!.Id,
+            new EditCommentRequest("Updated content"),
+            AgentId, UserRole.Agent);
+
+        Assert.NotNull(result);
+        Assert.Equal("Updated content", result.Content);
+        Assert.NotNull(result.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task EditCommentAsync_NonAuthorCannotEditComment()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Edit Forbid Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Original"), AgentId);
+
+        // Agent2 tries to edit Agent's comment
+        var result = await _service.EditCommentAsync(
+            ticket.Id, comment!.Id,
+            new EditCommentRequest("Hijacked"),
+            Agent2Id, UserRole.Agent);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task EditCommentAsync_ShouldCreateHistoryEntry()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("History Edit Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Original"), AgentId);
+
+        await _service.EditCommentAsync(ticket.Id, comment!.Id,
+            new EditCommentRequest("Updated"), AgentId, UserRole.Agent);
+
+        var updated = await _service.GetByIdAsync(ticket.Id);
+        var editHistory = updated!.History.Where(h => h.FieldChanged == "Comment" && h.NewValue == "edited").ToList();
+        Assert.NotEmpty(editHistory);
+    }
+
+    [Fact]
+    public async Task DeleteCommentAsync_AuthorCanDeleteOwnComment()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Delete Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("To delete"), AgentId);
+
+        var result = await _service.DeleteCommentAsync(ticket.Id, comment!.Id, AgentId, UserRole.Agent);
+
+        Assert.True(result);
+        var updatedTicket = await _service.GetByIdAsync(ticket.Id);
+        Assert.Empty(updatedTicket!.Comments);
+    }
+
+    [Fact]
+    public async Task DeleteCommentAsync_AdminCanDeleteAnyComment()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Admin Delete Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Agent's comment"), AgentId);
+
+        // Admin deletes agent's comment
+        var result = await _service.DeleteCommentAsync(ticket.Id, comment!.Id, AdminId, UserRole.Admin);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task DeleteCommentAsync_NonAuthorNonAdminCannotDelete()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Delete Forbid Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Agent's comment"), AgentId);
+
+        // Agent2 tries to delete Agent's comment
+        var result = await _service.DeleteCommentAsync(ticket.Id, comment!.Id, Agent2Id, UserRole.Agent);
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task DeleteCommentAsync_ShouldCreateHistoryEntry()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Delete History Test"), SubmitterId);
+        var comment = await _service.AddCommentAsync(ticket.Id, new AddCommentRequest("Will be deleted"), AgentId);
+
+        await _service.DeleteCommentAsync(ticket.Id, comment!.Id, AgentId, UserRole.Agent);
+
+        var updated = await _service.GetByIdAsync(ticket.Id);
+        var deleteHistory = updated!.History.Where(h => h.FieldChanged == "Comment" && h.NewValue == "deleted").ToList();
+        Assert.NotEmpty(deleteHistory);
+    }
+
+    [Fact]
+    public async Task DeleteCommentAsync_ShouldReturnNullForNonExistentComment()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Test"), SubmitterId);
+        var result = await _service.DeleteCommentAsync(ticket.Id, 9999, AdminId, UserRole.Admin);
         Assert.Null(result);
     }
 

@@ -16,6 +16,8 @@ public class TicketComment
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    public DateTime? UpdatedAt { get; set; }
+
     // Navigation properties
     [ForeignKey(nameof(TicketId))]
     public Ticket Ticket { get; set; } = null!;

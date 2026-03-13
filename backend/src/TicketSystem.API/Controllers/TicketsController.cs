@@ -22,10 +22,22 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
 
     // GET /api/tickets
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<TicketSummaryDto>>> GetAll()
+    public async Task<ActionResult<PagedResult<TicketSummaryDto>>> GetAll(
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] bool assignedToMe = false,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
-        var tickets = await ticketService.GetAllAsync(CurrentUserId, CurrentUserRole);
-        return Ok(tickets);
+        TicketStatus? statusEnum = null;
+        if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<TicketStatus>(status, true, out var parsedStatus))
+        {
+            statusEnum = parsedStatus;
+        }
+
+        var queryParams = new TicketQueryParams(search, statusEnum, assignedToMe, page, pageSize);
+        var result = await ticketService.GetAllAsync(queryParams, CurrentUserId, CurrentUserRole);
+        return Ok(result);
     }
 
     // GET /api/tickets/stats
@@ -68,7 +80,6 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
     [HttpPut("{id:int}")]
     public async Task<ActionResult<TicketDetailDto>> Update(int id, [FromBody] UpdateTicketRequest request)
     {
-        // Submitters cannot update tickets
         if (CurrentUserRole == UserRole.Submitter)
             return Forbid();
 
@@ -79,44 +90,38 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
 
         if (CurrentUserRole == UserRole.Admin)
         {
-            // Admin: can update Status on any ticket; can assign any unassigned ticket to any Agent
             if (request.AssignedToId.HasValue &&
                 existing.AssignedToId is not null &&
                 request.AssignedToId != existing.AssignedToId)
             {
-                // Already assigned — cannot reassign via PUT (use /assign)
                 return Forbid();
             }
             allowedRequest = request;
         }
         else // Agent
         {
-            // Ticket must be assigned to current agent or unassigned
             if (existing.AssignedToId is not null && existing.AssignedToId != CurrentUserId)
                 return Forbid();
 
             TicketStatus? allowedStatus = null;
-            int? allowedAssignedToId = existing.AssignedToId; // keep as-is by default
+            int? allowedAssignedToId = existing.AssignedToId;
 
             if (existing.AssignedToId == CurrentUserId)
             {
-                // Can update Status only
                 allowedStatus = request.Status;
             }
             else
             {
-                // Ticket is unassigned — can self-assign
                 if (request.AssignedToId.HasValue)
                 {
                     if (request.AssignedToId != CurrentUserId)
-                        return Forbid(); // Agents can only assign to themselves
+                        return Forbid();
                     allowedAssignedToId = CurrentUserId;
                 }
-                // Status update not allowed on unassigned tickets
             }
 
             allowedRequest = new UpdateTicketRequest(
-                request.Title,       // allow title/description edits too
+                request.Title,
                 request.Description,
                 allowedStatus,
                 allowedAssignedToId
@@ -146,12 +151,10 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
 
         if (CurrentUserRole == UserRole.Agent)
         {
-            // Agents can only assign to themselves
             targetId = CurrentUserId;
         }
         else // Admin
         {
-            // Admin can assign to any agent, defaults to themselves if not specified
             targetId = request.AssignedToId ?? CurrentUserId;
         }
 
@@ -165,7 +168,6 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
     [HttpPost("{id:int}/comments")]
     public async Task<ActionResult<TicketCommentDto>> AddComment(int id, [FromBody] AddCommentRequest request)
     {
-        // Verify the requesting user has access to this ticket
         var existing = await ticketService.GetByIdAsync(id);
         if (existing is null) return NotFound();
 
@@ -183,5 +185,49 @@ public class TicketsController(ITicketService ticketService) : ControllerBase
         if (comment is null) return NotFound();
 
         return CreatedAtAction(nameof(GetById), new { id }, comment);
+    }
+
+    // PUT /api/tickets/{id}/comments/{commentId}
+    [HttpPut("{id:int}/comments/{commentId:int}")]
+    public async Task<ActionResult<TicketCommentDto>> EditComment(
+        int id,
+        int commentId,
+        [FromBody] EditCommentRequest request)
+    {
+        var existing = await ticketService.GetByIdAsync(id);
+        if (existing is null) return NotFound();
+
+        var result = await ticketService.EditCommentAsync(id, commentId, request, CurrentUserId, CurrentUserRole);
+
+        if (result is null)
+        {
+            // Could be not found or forbidden — distinguish by checking if comment exists
+            var commentExists = existing.Comments.Any(c => c.Id == commentId);
+            if (!commentExists) return NotFound();
+            return Forbid();
+        }
+
+        return Ok(result);
+    }
+
+    // DELETE /api/tickets/{id}/comments/{commentId}
+    [HttpDelete("{id:int}/comments/{commentId:int}")]
+    public async Task<IActionResult> DeleteComment(int id, int commentId)
+    {
+        var existing = await ticketService.GetByIdAsync(id);
+        if (existing is null) return NotFound();
+
+        var result = await ticketService.DeleteCommentAsync(id, commentId, CurrentUserId, CurrentUserRole);
+
+        if (result is null)
+        {
+            var commentExists = existing.Comments.Any(c => c.Id == commentId);
+            if (!commentExists) return NotFound();
+            return Forbid();
+        }
+
+        if (!result.Value) return Forbid();
+
+        return NoContent();
     }
 }
