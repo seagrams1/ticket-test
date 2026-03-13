@@ -603,6 +603,8 @@ function getPrioritySeverity(priority: string): string {
                     text rounded
                     size="small"
                     class="!w-7 !h-7"
+                    aria-label="Edit comment"
+                    v-tooltip="'Edit comment'"
                     @click="startEditComment(comment.id, comment.content)"
                   />
                   <Button
@@ -612,6 +614,8 @@ function getPrioritySeverity(priority: string): string {
                     text rounded
                     size="small"
                     class="!w-7 !h-7"
+                    aria-label="Delete comment"
+                    v-tooltip="'Delete comment'"
                     @click="confirmDeleteComment(comment.id)"
                   />
                 </div>

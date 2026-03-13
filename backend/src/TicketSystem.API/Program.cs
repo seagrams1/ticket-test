@@ -11,7 +11,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// Built-in .NET 10 OpenAPI document generation
+// Native .NET 10 OpenAPI document generation
 builder.Services.AddOpenApi();
 
 // Database
@@ -60,7 +60,16 @@ var app = builder.Build();
 // --- Pipeline ---
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();  // Exposes /openapi/v1.json
+    // Native .NET 10 OpenAPI document: GET /openapi/v1.json
+    app.MapOpenApi();
+
+    // Swagger UI pointing at the native OpenAPI document.
+    // Supports JWT Bearer auth: click "Authorize", paste your token (without "Bearer " prefix).
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/openapi/v1.json", "TicketSystem API v1");
+        c.RoutePrefix = "swagger";  // Swagger UI at /swagger
+    });
 }
 
 app.UseCors("AllowFrontend");

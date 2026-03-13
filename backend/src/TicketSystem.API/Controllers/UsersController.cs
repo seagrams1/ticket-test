@@ -7,14 +7,25 @@ using TicketSystem.API.Models;
 
 namespace TicketSystem.API.Controllers;
 
+/// <summary>
+/// Provides user management operations (currently agent listing for assignment workflows).
+/// </summary>
 [ApiController]
 [Route("api/users")]
 [Authorize]
 public class UsersController(AppDbContext context) : ControllerBase
 {
-    // GET /api/users/agents — Admin only
+    /// <summary>
+    /// Returns a list of all users with the Agent role.
+    /// Used in the admin UI to populate the ticket assignment dropdown.
+    /// </summary>
+    /// <returns>List of agents (ID and username).</returns>
+    /// <response code="200">List of agents returned.</response>
+    /// <response code="403">Caller does not have the Admin role.</response>
     [HttpGet("agents")]
     [Authorize(Roles = "Admin")]
+    [ProducesResponseType(typeof(IEnumerable<AgentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<ActionResult<IEnumerable<AgentDto>>> GetAgents()
     {
         var agents = await context.Users

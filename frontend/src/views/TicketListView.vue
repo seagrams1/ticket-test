@@ -312,6 +312,7 @@ function getPrioritySeverity(priority: string): string {
                     severity="secondary"
                     text rounded size="small"
                     @click="viewTicket(data.id)"
+                    aria-label="View ticket"
                     v-tooltip="'View'"
                   />
                   <!-- Agent: Assign to me (unassigned only) -->

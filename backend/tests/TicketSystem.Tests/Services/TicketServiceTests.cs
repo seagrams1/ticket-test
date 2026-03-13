@@ -409,6 +409,195 @@ public class TicketServiceTests : IDisposable
         Assert.Null(result);
     }
 
+    // ─── Priority tests ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreateAsync_WithHighPriority_ShouldSetPriorityCorrectly()
+    {
+        var request = new CreateTicketRequest("High Priority Ticket", "Urgent issue", TicketPriority.High);
+
+        var result = await _service.CreateAsync(request, AgentId);
+
+        Assert.NotNull(result);
+        Assert.Equal("High", result.Priority);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DefaultPriority_ShouldBeMedium()
+    {
+        var request = new CreateTicketRequest("Default Priority Ticket");
+
+        var result = await _service.CreateAsync(request, AgentId);
+
+        Assert.Equal("Medium", result.Priority);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_PriorityChange_ShouldCreateHistoryEntry()
+    {
+        var ticket = await _service.CreateAsync(
+            new CreateTicketRequest("Priority Test", "desc", TicketPriority.Low),
+            AgentId);
+
+        var updated = await _service.UpdateAsync(
+            ticket.Id,
+            new UpdateTicketRequest(null, null, null, null, TicketPriority.Critical),
+            AgentId);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Critical", updated.Priority);
+        Assert.Single(updated.History);
+        var histEntry = updated.History.First();
+        Assert.Equal("Priority", histEntry.FieldChanged);
+        Assert.Equal("Low", histEntry.OldValue);
+        Assert.Equal("Critical", histEntry.NewValue);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SamePriority_ShouldNotCreateHistoryEntry()
+    {
+        var ticket = await _service.CreateAsync(
+            new CreateTicketRequest("Same Priority", "desc", TicketPriority.Medium),
+            AgentId);
+
+        var updated = await _service.UpdateAsync(
+            ticket.Id,
+            new UpdateTicketRequest(null, null, null, null, TicketPriority.Medium),
+            AgentId);
+
+        Assert.NotNull(updated);
+        Assert.Empty(updated.History);
+    }
+
+    // ─── Pagination edge cases ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAllAsync_PageOutOfBounds_ShouldReturnEmptyItems()
+    {
+        for (int i = 1; i <= 3; i++)
+            await _service.CreateAsync(new CreateTicketRequest($"Ticket {i}"), SubmitterId);
+
+        // Page 100 is way out of bounds — should return 0 items but correct totalCount
+        var result = await _service.GetAllAsync(
+            new TicketQueryParams(Page: 100, PageSize: 10),
+            AdminId, UserRole.Admin);
+
+        Assert.Equal(3, result.TotalCount);
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_PageSizeZero_ShouldDefaultToOne()
+    {
+        for (int i = 1; i <= 5; i++)
+            await _service.CreateAsync(new CreateTicketRequest($"Ticket {i}"), SubmitterId);
+
+        // pageSize=0 is clamped to 1 by Math.Clamp(pageSize, 1, 100)
+        var result = await _service.GetAllAsync(
+            new TicketQueryParams(Page: 1, PageSize: 0),
+            AdminId, UserRole.Admin);
+
+        Assert.Equal(5, result.TotalCount);
+        Assert.Single(result.Items);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_NegativePage_ShouldDefaultToPageOne()
+    {
+        for (int i = 1; i <= 3; i++)
+            await _service.CreateAsync(new CreateTicketRequest($"Ticket {i}"), SubmitterId);
+
+        // Negative page is clamped to 1 by Math.Max(1, page)
+        var result = await _service.GetAllAsync(
+            new TicketQueryParams(Page: -5, PageSize: 10),
+            AdminId, UserRole.Admin);
+
+        Assert.Equal(3, result.TotalCount);
+        Assert.Equal(3, result.Items.Count());
+    }
+
+    // ─── History tracking — all trackable changes ──────────────────────────────
+
+    [Fact]
+    public async Task UpdateAsync_MultipleChanges_ShouldCreateMultipleHistoryEntries()
+    {
+        var ticket = await _service.CreateAsync(
+            new CreateTicketRequest("Original Title", "Original Desc"),
+            AgentId);
+
+        var updated = await _service.UpdateAsync(
+            ticket.Id,
+            new UpdateTicketRequest("New Title", "New Desc", TicketStatus.InProgress, null),
+            AdminId);
+
+        Assert.NotNull(updated);
+        Assert.Equal(3, updated.History.Count());
+
+        var fields = updated.History.Select(h => h.FieldChanged).ToList();
+        Assert.Contains("Title", fields);
+        Assert.Contains("Description", fields);
+        Assert.Contains("Status", fields);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DescriptionChange_ShouldCreateHistoryEntry()
+    {
+        var ticket = await _service.CreateAsync(
+            new CreateTicketRequest("Test", "Original description"),
+            AgentId);
+
+        var updated = await _service.UpdateAsync(
+            ticket.Id,
+            new UpdateTicketRequest(null, "Updated description", null, null),
+            AgentId);
+
+        Assert.NotNull(updated);
+        Assert.Single(updated.History);
+        var hist = updated.History.First();
+        Assert.Equal("Description", hist.FieldChanged);
+        Assert.Equal("Original description", hist.OldValue);
+        Assert.Equal("Updated description", hist.NewValue);
+    }
+
+    [Fact]
+    public async Task AssignAsync_ThenReassign_ShouldTrackBothHistoryEntries()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Reassign Test"), SubmitterId);
+
+        // First assignment
+        await _service.AssignAsync(ticket.Id, AgentId, AdminId);
+
+        // Re-assign via UpdateAsync (which tracks AssignedToId changes)
+        var updated = await _service.UpdateAsync(
+            ticket.Id,
+            new UpdateTicketRequest(null, null, null, Agent2Id),
+            AdminId);
+
+        Assert.NotNull(updated);
+        // Should have 2 history entries: one from AssignAsync, one from UpdateAsync
+        Assert.Equal(2, updated.History.Count());
+    }
+
+    [Fact]
+    public async Task UpdateAsync_AllResolvableStatuses_ShouldBeTracked()
+    {
+        var ticket = await _service.CreateAsync(new CreateTicketRequest("Status Chain"), AgentId);
+
+        var statuses = new[] { TicketStatus.InProgress, TicketStatus.Paused, TicketStatus.Resolved };
+        foreach (var status in statuses)
+        {
+            await _service.UpdateAsync(ticket.Id, new UpdateTicketRequest(null, null, status, null), AgentId);
+        }
+
+        var final = await _service.GetByIdAsync(ticket.Id);
+        Assert.NotNull(final);
+        Assert.Equal("Resolved", final.Status);
+
+        // Should have 3 history entries for 3 status changes
+        var statusHistory = final.History.Where(h => h.FieldChanged == "Status").ToList();
+        Assert.Equal(3, statusHistory.Count);
+    }
+
     public void Dispose()
     {
         _context.Dispose();
