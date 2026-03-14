@@ -1,5 +1,4 @@
 import axios from 'axios'
-import router from '@/router'
 
 const api = axios.create({
   baseURL: '/api',
@@ -27,18 +26,29 @@ api.interceptors.response.use(
     const status = error.response?.status
 
     if (status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      // Only redirect to login if this wasn't the login request itself
+      const isLoginRequest = error.config?.url?.includes('/auth/login')
+      if (!isLoginRequest) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('username')
+        localStorage.removeItem('role')
+        localStorage.removeItem('userId')
+        // Use router lazily to avoid circular dependency
+        import('@/router').then(({ default: router }) => {
+          router.push({ name: 'login' })
+        })
+      }
       return Promise.reject(error)
     }
 
     if (status === 403) {
-      router.push({ name: 'access-denied' })
+      import('@/router').then(({ default: router }) => {
+        router.push({ name: 'access-denied' })
+      })
       return Promise.reject(error)
     }
 
     // Show toast for other 4xx/5xx errors
-    // We use a custom event because we can't use composables outside Vue components
     if (status >= 400) {
       const detail = error.response?.data?.message
         || error.response?.data?.title
